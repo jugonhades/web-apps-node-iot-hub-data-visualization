@@ -57,16 +57,16 @@ $(document).ready(() => {
     'rgba(145, 30, 180, 1)'
   ];
 
-  // Datos del chart: un dataset por dispositivo
+  // Datos del chart: un dataset por dispositivo lógico (dron)
   const chartData = {
-    labels: [],      // no se usan directamente con eje 'time', pero Chart.js los requiere
-    datasets: []     // se rellena dinámicamente según trackedDevices
+    labels: [],
+    datasets: []
   };
 
   const chartOptions = {
     responsive: true,
     animation: false,
-    maintainAspectRatio: false,
+    maintainAspectRatio: false, // tamaño lo controla el CSS del contenedor
     scales: {
       yAxes: [{
         id: 'Speed',
@@ -112,7 +112,8 @@ $(document).ready(() => {
   };
 
   // Canvas y chart
-  const ctx = document.getElementById('iotChart').getContext('2d');
+  const canvas = document.getElementById('iotChart');
+  const ctx = canvas.getContext('2d');
   const myLineChart = new Chart(ctx, {
     type: 'line',
     data: chartData,
@@ -124,9 +125,12 @@ $(document).ready(() => {
   const deviceCount = document.getElementById('deviceCount');
   const listOfDevices = document.getElementById('listOfDevices');
 
-  // Selección de dispositivo: destaca el dron seleccionado (línea más gruesa)
+  // Selección de dispositivo: resalta el dron seleccionado
   function OnSelectionChange() {
+    if (listOfDevices.selectedIndex < 0) return;
+
     const selectedId = listOfDevices[listOfDevices.selectedIndex].text;
+
     chartData.datasets.forEach((ds) => {
       if (ds.label === selectedId) {
         ds.borderWidth = 3;
@@ -136,6 +140,7 @@ $(document).ready(() => {
         ds.pointRadius = 0;
       }
     });
+
     myLineChart.update();
   }
   listOfDevices.addEventListener('change', OnSelectionChange, false);
@@ -160,12 +165,23 @@ $(document).ready(() => {
     });
   }
 
-  // Extrae velocidad de diferentes esquemas de mensaje:
-  // - Sample original: { DeviceId, MessageDate, IotData: { ... } }
-  // - Nuevo:          { droneId, timestamp, velocity: { speed_mps } }
+  // Extrae velocidad y "device" lógico (dron) de los mensajes que llegan del backend:
+  // - Sample original: { DeviceId, MessageDate, IotData: { droneId, timestamp, velocity:{speed_mps}, ... } }
+  // - Variante directa: { droneId, timestamp, velocity:{speed_mps}, ... }
   function extractTelemetry(messageData) {
-    let deviceId = messageData.DeviceId || messageData.deviceId || messageData.droneId;
-    let time = messageData.MessageDate || messageData.timestamp;
+    // Clave de serie = droneId si está; si no, DeviceId del IoT Hub
+    let deviceId =
+      (messageData.IotData && messageData.IotData.droneId) ||
+      messageData.droneId ||
+      messageData.DeviceId ||
+      messageData.deviceId;
+
+    // Marca de tiempo: prioriza la del payload de dron
+    let time =
+      (messageData.IotData && messageData.IotData.timestamp) ||
+      messageData.timestamp ||
+      messageData.MessageDate;
+
     let speed;
 
     if (messageData.IotData) {
@@ -201,13 +217,13 @@ $(document).ready(() => {
 
       const telemetry = extractTelemetry(messageData);
       if (!telemetry) {
-        // Mensaje de otro tipo o sin velocidad
+        // Mensaje sin info de velocidad/dron
         return;
       }
 
       const { deviceId, time, speed } = telemetry;
 
-      // Buscar o crear DeviceData
+      // Buscar o crear DeviceData para ese dron
       let deviceData = trackedDevices.findDevice(deviceId);
       if (!deviceData) {
         deviceData = new DeviceData(deviceId);
@@ -232,7 +248,7 @@ $(document).ready(() => {
 
       // Reconstruir datasets y actualizar chart
       refreshDatasets();
-      OnSelectionChange(); // re-aplica resaltado
+      OnSelectionChange(); // re-aplica resaltado según selección
     } catch (err) {
       console.error('Error al procesar mensaje WS:', err);
     }
