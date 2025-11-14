@@ -2,26 +2,23 @@
 /* eslint-disable no-restricted-globals */
 /* eslint-disable no-undef */
 $(document).ready(() => {
-  // Selecciona wss:// en HTTPS
   const protocol = document.location.protocol.startsWith('https') ? 'wss://' : 'ws://';
   const webSocket = new WebSocket(protocol + location.host);
 
-  // Clase para mantener una ventana deslizante y datasets por dron
   class MultiDroneData {
     constructor(maxLen = 50) {
       this.maxLen = maxLen;
       this.labels = [];
       this.datasetsMap = new Map();
       this.colorPalette = [
-        'rgba(230, 25, 75, 1)',   // Rojo
-        'rgba(60, 180, 75, 1)',   // Verde
-        'rgba(0, 130, 200, 1)',   // Azul
-        'rgba(245, 130, 48, 1)',  // Naranja
-        'rgba(145, 30, 180, 1)'   // Morado
+        'rgba(230, 25, 75, 1)',
+        'rgba(60, 180, 75, 1)',
+        'rgba(0, 130, 200, 1)',
+        'rgba(245, 130, 48, 1)',
+        'rgba(145, 30, 180, 1)'
       ];
       this.maxDrones = 5;
     }
-
     ensureDataset(droneId) {
       if (!this.datasetsMap.has(droneId)) {
         if (this.datasetsMap.size >= this.maxDrones) {
@@ -43,39 +40,25 @@ $(document).ready(() => {
       }
       return this.datasetsMap.get(droneId);
     }
-
     pushSample(isoTimestamp, droneId, speed) {
-      // Nueva etiqueta temporal
       this.labels.push(isoTimestamp);
-
-      // Alinea todos los datasets existentes con la nueva etiqueta
       this.datasetsMap.forEach(ds => ds.data.push(null));
-
-      // Registra la velocidad del dron en el último índice
       const ds = this.ensureDataset(droneId);
-      if (ds) {
-        ds.data[ds.data.length - 1] = speed;
-      }
-
-      // Ventana deslizante
+      if (ds) ds.data[ds.data.length - 1] = speed;
       if (this.labels.length > this.maxLen) {
         this.labels.shift();
-        this.datasetsMap.forEach(ds => ds.data.shift());
+        this.datasetsMap.forEach(ds2 => ds2.data.shift());
       }
     }
-
     getDatasets() {
       return Array.from(this.datasetsMap.values());
     }
   }
 
-  // Normaliza mensajes del esquema nuevo u original del sample
   function normalizeMessage(msg) {
-    // Preferencia: { droneId, timestamp, velocity.speed_mps }
     let droneId = msg.droneId || msg.deviceId || msg.DeviceId;
     let timestamp = msg.timestamp || msg.MessageDate || msg.EnqueuedTimeUtc || msg.enqueuedTimeUtc;
     let speed;
-
     if (msg.velocity && typeof msg.velocity.speed_mps !== 'undefined') {
       speed = msg.velocity.speed_mps;
     } else if (msg.IotData) {
@@ -84,18 +67,14 @@ $(document).ready(() => {
       else if (typeof d.speed_mps !== 'undefined') speed = d.speed_mps;
       else if (typeof d.speed !== 'undefined') speed = d.speed;
     }
-
     if (!droneId || !timestamp || typeof speed === 'undefined' || speed === null) return undefined;
-
     const speedNum = Number(speed);
     if (Number.isNaN(speedNum)) return undefined;
-
     return { droneId, timestamp, speed: speedNum };
   }
 
   const multiData = new MultiDroneData(50);
 
-  // Datos y opciones del chart (Chart.js v2)
   const chartData = {
     labels: multiData.labels,
     datasets: multiData.getDatasets()
@@ -104,16 +83,16 @@ $(document).ready(() => {
   const chartOptions = {
     responsive: true,
     animation: false,
-    maintainAspectRatio: false, // el tamaño lo controla el CSS del contenedor
+    maintainAspectRatio: false,
     scales: {
       yAxes: [{
         id: 'Speed',
         type: 'linear',
         ticks: {
           beginAtZero: true,
-          min: 0,       // límite inferior fijo
-          max: 300,     // límite superior fijo
-          stepSize: 20  // separación de marcas
+          min: 0,
+          max: 300,
+          stepSize: 20
         },
         scaleLabel: { labelString: 'Speed (m/s)', display: true },
         position: 'left'
@@ -122,7 +101,7 @@ $(document).ready(() => {
         type: 'time',
         distribution: 'series',
         time: {
-          parser: true, // Moment parsea ISO 8601 automáticamente
+          parser: true,
           tooltipFormat: 'YYYY-MM-DD HH:mm:ss',
           displayFormats: {
             millisecond: 'HH:mm:ss',
@@ -138,7 +117,6 @@ $(document).ready(() => {
     elements: { line: { tension: 0 } }
   };
 
-  // Contexto del canvas y creación del gráfico
   const canvas = document.getElementById('iotChart');
   if (!canvas) {
     console.error('No se encontró el canvas #iotChart en el DOM');
@@ -147,7 +125,6 @@ $(document).ready(() => {
   const ctx = canvas.getContext('2d');
   const myLineChart = new Chart(ctx, { type: 'line', data: chartData, options: chartOptions });
 
-  // WebSocket
   webSocket.onopen = () => console.log('WS abierto');
   webSocket.onerror = (e) => console.error('WS error', e);
   webSocket.onclose = () => console.warn('WS cerrado');
@@ -156,15 +133,11 @@ $(document).ready(() => {
     try {
       const msg = JSON.parse(message.data);
       const normalized = normalizeMessage(msg);
-
       if (!normalized) {
         console.debug('Mensaje ignorado (sin speed/droneId/timestamp):', msg);
         return;
       }
-
       const { droneId, timestamp, speed } = normalized;
-
-      // Registrar y actualizar
       multiData.pushSample(timestamp, droneId, speed);
       myLineChart.data.labels = multiData.labels;
       myLineChart.data.datasets = multiData.getDatasets();

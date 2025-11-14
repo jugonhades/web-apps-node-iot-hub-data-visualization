@@ -6,11 +6,10 @@
 
   <!-- Dependencias (orden correcto) -->
   <script src="https://code.jquery.com/jquery-3.4.0.min.js" crossorigin="anonymous"></script>
-  <!-- Chart.js v2 usa Moment para la escala 'time' -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.4/moment.min.js" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@2.8.0/dist/Chart.min.js" crossorigin="anonymous"></script>
 
-  <!-- Tu script de la gráfica con cache-busting -->
+  <!-- Tu script del gráfico con cache-busting -->
   <script src="js/chart-device-data.js?v=20251114" charset="utf-8"></script>
 
   <link href="css/style.css" rel="stylesheet" />
@@ -20,9 +19,9 @@
     /* Contenedor grande y responsive para la gráfica */
     .chart-container {
       position: relative;
-      height: 60vh;       /* alto grande; puedes usar 500px si prefieres fijo */
-      width: 92vw;        /* ancho amplio */
-      max-width: 1400px;  /* límite opcional */
+      height: 60vh;
+      width: 92vw;
+      max-width: 1400px;
       margin: 0 auto;
     }
     /* El canvas ocupa todo el contenedor */
