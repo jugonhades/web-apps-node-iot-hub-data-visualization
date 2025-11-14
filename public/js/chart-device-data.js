@@ -6,11 +6,6 @@ $(document).ready(() => {
   const protocol = document.location.protocol.startsWith('https') ? 'wss://' : 'ws://';
   const webSocket = new WebSocket(protocol + location.host);
 
-  // Verificación defensiva de Moment para escala 'time' de Chart.js v2
-  if (typeof moment === 'undefined') {
-    console.error('Moment.js no está cargado: la escala temporal de Chart.js 2.x lo requiere.');
-  }
-
   // Clase para mantener una ventana deslizante y datasets por dron
   class MultiDroneData {
     constructor(maxLen = 50) {
@@ -74,14 +69,12 @@ $(document).ready(() => {
     }
   }
 
-  // Normaliza mensajes de dos esquemas posibles:
-  // 1) Nuevo: { droneId, timestamp, velocity:{ speed_mps } }
-  // 2) Sample original: { DeviceId, MessageDate, IotData:{ ... (opcional speed) } }
+  // Normaliza mensajes del esquema nuevo u original del sample
   function normalizeMessage(msg) {
-    // Preferencia: nuevo esquema
+    // Preferencia: { droneId, timestamp, velocity.speed_mps }
     let droneId = msg.droneId || msg.deviceId || msg.DeviceId;
     let timestamp = msg.timestamp || msg.MessageDate || msg.EnqueuedTimeUtc || msg.enqueuedTimeUtc;
-    let speed = undefined;
+    let speed;
 
     if (msg.velocity && typeof msg.velocity.speed_mps !== 'undefined') {
       speed = msg.velocity.speed_mps;
@@ -92,10 +85,8 @@ $(document).ready(() => {
       else if (typeof d.speed !== 'undefined') speed = d.speed;
     }
 
-    // Devuelve undefined si falta lo esencial
     if (!droneId || !timestamp || typeof speed === 'undefined' || speed === null) return undefined;
 
-    // Asegura número
     const speedNum = Number(speed);
     if (Number.isNaN(speedNum)) return undefined;
 
@@ -111,12 +102,19 @@ $(document).ready(() => {
   };
 
   const chartOptions = {
+    responsive: true,
     animation: false,
-    maintainAspectRatio: false,
+    maintainAspectRatio: false, // el tamaño lo controla el CSS del contenedor
     scales: {
       yAxes: [{
         id: 'Speed',
         type: 'linear',
+        ticks: {
+          beginAtZero: true,
+          min: 0,       // límite inferior fijo
+          max: 300,     // límite superior fijo
+          stepSize: 20  // separación de marcas
+        },
         scaleLabel: { labelString: 'Speed (m/s)', display: true },
         position: 'left'
       }],
@@ -124,7 +122,7 @@ $(document).ready(() => {
         type: 'time',
         distribution: 'series',
         time: {
-          parser: true, // Delega parseo a Moment con ISO 8601
+          parser: true, // Moment parsea ISO 8601 automáticamente
           tooltipFormat: 'YYYY-MM-DD HH:mm:ss',
           displayFormats: {
             millisecond: 'HH:mm:ss',
@@ -160,7 +158,6 @@ $(document).ready(() => {
       const normalized = normalizeMessage(msg);
 
       if (!normalized) {
-        // Visibiliza por qué no se grafica cuando llega telemetría de otro esquema
         console.debug('Mensaje ignorado (sin speed/droneId/timestamp):', msg);
         return;
       }
