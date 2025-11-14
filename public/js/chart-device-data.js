@@ -6,170 +6,147 @@ $(document).ready(() => {
   const protocol = document.location.protocol.startsWith('https') ? 'wss://' : 'ws://';
   const webSocket = new WebSocket(protocol + location.host);
 
-  // A class for holding the last N points of telemetry for a device
-  class DeviceData {
-    constructor(deviceId) {
-      this.deviceId = deviceId;
-      this.maxLen = 50;
-      this.timeData = new Array(this.maxLen);
-      this.temperatureData = new Array(this.maxLen);
-      this.humidityData = new Array(this.maxLen);
+  // Clase para mantener una ventana deslizante de tiempos y datasets por dron
+  class MultiDroneData {
+    constructor(maxLen = 50) {
+      this.maxLen = maxLen;
+      this.labels = [];
+      this.datasetsMap = new Map();
+      this.colorPalette = [
+        'rgba(230, 25, 75, 1)',   // Rojo
+        'rgba(60, 180, 75, 1)',   // Verde
+        'rgba(0, 130, 200, 1)',   // Azul
+        'rgba(245, 130, 48, 1)',  // Naranja
+        'rgba(145, 30, 180, 1)'   // Morado
+      ];
+      this.maxDrones = 5;
     }
 
-    addData(time, temperature, humidity) {
-      this.timeData.push(time);
-      this.temperatureData.push(temperature);
-      this.humidityData.push(humidity || null);
-
-      if (this.timeData.length > this.maxLen) {
-        this.timeData.shift();
-        this.temperatureData.shift();
-        this.humidityData.shift();
-      }
-    }
-  }
-
-  // All the devices in the list (those that have been sending telemetry)
-  class TrackedDevices {
-    constructor() {
-      this.devices = [];
-    }
-
-    // Find a device based on its Id
-    findDevice(deviceId) {
-      for (let i = 0; i < this.devices.length; ++i) {
-        if (this.devices[i].deviceId === deviceId) {
-          return this.devices[i];
+    ensureDataset(droneId) {
+      if (!this.datasetsMap.has(droneId)) {
+        if (this.datasetsMap.size >= this.maxDrones) {
+          // Si llegan más de 5 drones, ignoramos los adicionales
+          return null;
         }
+        const color = this.colorPalette[this.datasetsMap.size % this.colorPalette.length];
+        const ds = {
+          label: droneId,
+          fill: false,
+          yAxisID: 'Speed',
+          borderColor: color,
+          backgroundColor: color.replace(', 1)', ', 0.2)'),
+          pointRadius: 0,
+          spanGaps: true,
+          data: new Array(this.labels.length).fill(null)
+        };
+        this.datasetsMap.set(droneId, ds);
       }
-
-      return undefined;
+      return this.datasetsMap.get(droneId);
     }
 
-    getDevicesCount() {
-      return this.devices.length;
+    pushSample(isoTimestamp, droneId, speed) {
+      // Añadir etiqueta temporal
+      this.labels.push(isoTimestamp);
+
+      // Empujar null a todos los datasets existentes para alinear con la nueva etiqueta
+      this.datasetsMap.forEach(ds => ds.data.push(null));
+
+      // Asegurar dataset del dron y registrar su velocidad en el último índice
+      const ds = this.ensureDataset(droneId);
+      if (ds) {
+        ds.data[ds.data.length - 1] = speed;
+      }
+
+      // Ventana deslizante
+      if (this.labels.length > this.maxLen) {
+        this.labels.shift();
+        this.datasetsMap.forEach(ds => ds.data.shift());
+      }
+    }
+
+    getDatasets() {
+      return Array.from(this.datasetsMap.values());
     }
   }
 
-  const trackedDevices = new TrackedDevices();
+  const multiData = new MultiDroneData(50);
 
-  // Define the chart axes
+  // Definir datos y opciones del chart (Chart.js v2-style)
   const chartData = {
-    datasets: [
-      {
-        fill: false,
-        label: 'Temperature',
-        yAxisID: 'Temperature',
-        borderColor: 'rgba(255, 204, 0, 1)',
-        pointBoarderColor: 'rgba(255, 204, 0, 1)',
-        backgroundColor: 'rgba(255, 204, 0, 0.4)',
-        pointHoverBackgroundColor: 'rgba(255, 204, 0, 1)',
-        pointHoverBorderColor: 'rgba(255, 204, 0, 1)',
-        spanGaps: true,
-      },
-      {
-        fill: false,
-        label: 'Humidity',
-        yAxisID: 'Humidity',
-        borderColor: 'rgba(24, 120, 240, 1)',
-        pointBoarderColor: 'rgba(24, 120, 240, 1)',
-        backgroundColor: 'rgba(24, 120, 240, 0.4)',
-        pointHoverBackgroundColor: 'rgba(24, 120, 240, 1)',
-        pointHoverBorderColor: 'rgba(24, 120, 240, 1)',
-        spanGaps: true,
-      }
-    ]
+    labels: multiData.labels,
+    datasets: multiData.getDatasets()
   };
 
   const chartOptions = {
+    animation: false,
+    maintainAspectRatio: false,
     scales: {
       yAxes: [{
-        id: 'Temperature',
+        id: 'Speed',
         type: 'linear',
         scaleLabel: {
-          labelString: 'Temperature (ºC)',
-          display: true,
+          labelString: 'Speed (m/s)',
+          display: true
         },
-        position: 'left',
-      },
-      {
-        id: 'Humidity',
-        type: 'linear',
+        position: 'left'
+      }],
+      xAxes: [{
+        type: 'time',
+        distribution: 'series',
+        time: {
+          parser: true,
+          tooltipFormat: 'YYYY-MM-DD HH:mm:ss',
+          displayFormats: {
+            millisecond: 'HH:mm:ss',
+            second: 'HH:mm:ss',
+            minute: 'HH:mm',
+            hour: 'HH:mm'
+          }
+        },
         scaleLabel: {
-          labelString: 'Humidity (%)',
-          display: true,
-        },
-        position: 'right',
+          labelString: 'Timestamp (UTC)',
+          display: true
+        }
       }]
+    },
+    tooltips: {
+      mode: 'nearest',
+      intersect: false
+    },
+    elements: {
+      line: { tension: 0 }
     }
   };
 
-  // Get the context of the canvas element we want to select
+  // Contexto del canvas
   const ctx = document.getElementById('iotChart').getContext('2d');
-  const myLineChart = new Chart(
-    ctx,
-    {
-      type: 'line',
-      data: chartData,
-      options: chartOptions,
-    });
+  const myLineChart = new Chart(ctx, {
+    type: 'line',
+    data: chartData,
+    options: chartOptions
+  });
 
-  // Manage a list of devices in the UI, and update which device data the chart is showing
-  // based on selection
-  let needsAutoSelect = true;
-  const deviceCount = document.getElementById('deviceCount');
-  const listOfDevices = document.getElementById('listOfDevices');
-  function OnSelectionChange() {
-    const device = trackedDevices.findDevice(listOfDevices[listOfDevices.selectedIndex].text);
-    chartData.labels = device.timeData;
-    chartData.datasets[0].data = device.temperatureData;
-    chartData.datasets[1].data = device.humidityData;
-    myLineChart.update();
-  }
-  listOfDevices.addEventListener('change', OnSelectionChange, false);
-
-  // When a web socket message arrives:
-  // 1. Unpack it
-  // 2. Validate it has date/time and temperature
-  // 3. Find or create a cached device to hold the telemetry data
-  // 4. Append the telemetry data
-  // 5. Update the chart UI
+  // WebSocket: parsea mensajes del simulador { droneId, timestamp, velocity.speed_mps, ... }
   webSocket.onmessage = function onMessage(message) {
     try {
-      const messageData = JSON.parse(message.data);
-      console.log(messageData);
+      const msg = JSON.parse(message.data);
 
-      // time and either temperature or humidity are required
-      if (!messageData.MessageDate || (!messageData.IotData.temperature && !messageData.IotData.humidity)) {
+      // Validación básica para el nuevo esquema de telemetría
+      const droneId = msg.droneId;
+      const isoTimestamp = msg.timestamp; // ISO 8601
+      const speed = msg?.velocity?.speed_mps;
+
+      if (!droneId || !isoTimestamp || (speed === undefined || speed === null)) {
+        // Mensaje no relevante para la gráfica de velocidad
         return;
       }
 
-      // find or add device to list of tracked devices
-      const existingDeviceData = trackedDevices.findDevice(messageData.DeviceId);
+      // Registrar muestra
+      multiData.pushSample(isoTimestamp, droneId, Number(speed));
 
-      if (existingDeviceData) {
-        existingDeviceData.addData(messageData.MessageDate, messageData.IotData.temperature, messageData.IotData.humidity);
-      } else {
-        const newDeviceData = new DeviceData(messageData.DeviceId);
-        trackedDevices.devices.push(newDeviceData);
-        const numDevices = trackedDevices.getDevicesCount();
-        deviceCount.innerText = numDevices === 1 ? `${numDevices} device` : `${numDevices} devices`;
-        newDeviceData.addData(messageData.MessageDate, messageData.IotData.temperature, messageData.IotData.humidity);
-
-        // add device to the UI list
-        const node = document.createElement('option');
-        const nodeText = document.createTextNode(messageData.DeviceId);
-        node.appendChild(nodeText);
-        listOfDevices.appendChild(node);
-
-        // if this is the first device being discovered, auto-select it
-        if (needsAutoSelect) {
-          needsAutoSelect = false;
-          listOfDevices.selectedIndex = 0;
-          OnSelectionChange();
-        }
-      }
-
+      // Sincronizar chart con el buffer
+      myLineChart.data.labels = multiData.labels;
+      myLineChart.data.datasets = multiData.getDatasets();
       myLineChart.update();
     } catch (err) {
       console.error(err);
