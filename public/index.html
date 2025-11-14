@@ -1,38 +1,71 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
 
-  <!-- Dependencias (orden correcto) -->
-  <script src="https://code.jquery.com/jquery-3.4.0.min.js" crossorigin="anonymous"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.4/moment.min.js" crossorigin="anonymous"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@2.8.0/dist/Chart.min.js" crossorigin="anonymous"></script>
+    <!-- Dependencias originales + Moment para escala de tiempo -->
+    <script src="https://code.jquery.com/jquery-3.4.0.min.js"
+            integrity="sha256-BJeo0qm959uMBGb65z40ejJYGSgR7REI4+CW1fNKwOg="
+            crossorigin="anonymous"
+            type="text/javascript"
+            charset="utf-8"></script>
 
-  <!-- Tu script del gráfico con cache-busting -->
-  <script src="js/chart-device-data.js?v=20251114" charset="utf-8"></script>
+    <!-- Necesario para Chart.js v2 con eje 'time' -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.4/moment.min.js"
+            crossorigin="anonymous"
+            type="text/javascript"
+            charset="utf-8"></script>
 
-  <link href="css/style.css" rel="stylesheet" />
-  <title>Drone Speed Real-time Data</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@2.8.0/dist/Chart.min.js"
+            type="text/javascript"
+            charset="utf-8"></script>
 
-  <style>
-    /* Contenedor grande y responsive para la gráfica */
-    .chart-container {
-      position: relative;
-      height: 60vh;
-      width: 92vw;
-      max-width: 1400px;
-      margin: 0 auto;
-    }
-    /* El canvas ocupa todo el contenedor */
-    #iotChart { height: 100%; width: 100%; }
-    body { margin: 0; padding: 1rem; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
-  </style>
+    <!-- Script de la gráfica (con cache-busting) -->
+    <script src="js/chart-device-data.js?v=20251114"
+            type="text/javascript"
+            charset="utf-8"></script>
+
+    <link href="css/style.css" rel="stylesheet" />
+
+    <title>Drone Speed Real-time Data</title>
+
+    <style>
+        /* Contenedor grande y responsive para la gráfica */
+        .chart-container {
+            position: relative;
+            height: 60vh;
+            width: 92vw;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        #iotChart {
+            height: 100%;
+            width: 100%;
+        }
+        body {
+            margin: 0;
+            padding: 1rem;
+            font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+        }
+        .flexHeader {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+    </style>
 </head>
+
 <body>
-  <h1 class="flexHeader">Drone Speed Real-time Data</h1>
-  <div class="chart-container">
-    <canvas id="iotChart"></canvas>
-  </div>
+    <h1 class="flexHeader">
+        <span>
+            <span id="deviceCount">0 devices</span>
+            <select id="listOfDevices" class="select_box"></select>
+        </span>
+        <span>Drone Speed Real-time Data</span>
+    </h1>
+    <div class="chart-container">
+        <canvas id="iotChart"></canvas>
+    </div>
 </body>
 </html>

@@ -2,82 +2,65 @@
 /* eslint-disable no-restricted-globals */
 /* eslint-disable no-undef */
 $(document).ready(() => {
+  // if deployed to a site supporting SSL, use wss://
   const protocol = document.location.protocol.startsWith('https') ? 'wss://' : 'ws://';
   const webSocket = new WebSocket(protocol + location.host);
 
-  class MultiDroneData {
-    constructor(maxLen = 50) {
-      this.maxLen = maxLen;
-      this.labels = [];
-      this.datasetsMap = new Map();
-      this.colorPalette = [
-        'rgba(230, 25, 75, 1)',
-        'rgba(60, 180, 75, 1)',
-        'rgba(0, 130, 200, 1)',
-        'rgba(245, 130, 48, 1)',
-        'rgba(145, 30, 180, 1)'
-      ];
-      this.maxDrones = 5;
+  // Clase para un dispositivo/dron: mantiene últimos N puntos (tiempo/velocidad)
+  class DeviceData {
+    constructor(deviceId) {
+      this.deviceId = deviceId;
+      this.maxLen = 50;
+      this.timeData = [];
+      this.speedData = [];
     }
-    ensureDataset(droneId) {
-      if (!this.datasetsMap.has(droneId)) {
-        if (this.datasetsMap.size >= this.maxDrones) {
-          console.warn('Máximo de drones alcanzado, ignorando:', droneId);
-          return null;
+
+    addData(time, speed) {
+      this.timeData.push(time);
+      this.speedData.push(speed);
+
+      if (this.timeData.length > this.maxLen) {
+        this.timeData.shift();
+        this.speedData.shift();
+      }
+    }
+  }
+
+  // Lista de dispositivos rastreados (igual que en el sample)
+  class TrackedDevices {
+    constructor() {
+      this.devices = [];
+    }
+
+    findDevice(deviceId) {
+      for (let i = 0; i < this.devices.length; ++i) {
+        if (this.devices[i].deviceId === deviceId) {
+          return this.devices[i];
         }
-        const color = this.colorPalette[this.datasetsMap.size % this.colorPalette.length];
-        const ds = {
-          label: droneId,
-          fill: false,
-          yAxisID: 'Speed',
-          borderColor: color,
-          backgroundColor: color.replace(', 1)', ', 0.2)'),
-          pointRadius: 0,
-          spanGaps: true,
-          data: new Array(this.labels.length).fill(null)
-        };
-        this.datasetsMap.set(droneId, ds);
       }
-      return this.datasetsMap.get(droneId);
+      return undefined;
     }
-    pushSample(isoTimestamp, droneId, speed) {
-      this.labels.push(isoTimestamp);
-      this.datasetsMap.forEach(ds => ds.data.push(null));
-      const ds = this.ensureDataset(droneId);
-      if (ds) ds.data[ds.data.length - 1] = speed;
-      if (this.labels.length > this.maxLen) {
-        this.labels.shift();
-        this.datasetsMap.forEach(ds2 => ds2.data.shift());
-      }
-    }
-    getDatasets() {
-      return Array.from(this.datasetsMap.values());
+
+    getDevicesCount() {
+      return this.devices.length;
     }
   }
 
-  function normalizeMessage(msg) {
-    let droneId = msg.droneId || msg.deviceId || msg.DeviceId;
-    let timestamp = msg.timestamp || msg.MessageDate || msg.EnqueuedTimeUtc || msg.enqueuedTimeUtc;
-    let speed;
-    if (msg.velocity && typeof msg.velocity.speed_mps !== 'undefined') {
-      speed = msg.velocity.speed_mps;
-    } else if (msg.IotData) {
-      const d = msg.IotData;
-      if (d.velocity && typeof d.velocity.speed_mps !== 'undefined') speed = d.velocity.speed_mps;
-      else if (typeof d.speed_mps !== 'undefined') speed = d.speed_mps;
-      else if (typeof d.speed !== 'undefined') speed = d.speed;
-    }
-    if (!droneId || !timestamp || typeof speed === 'undefined' || speed === null) return undefined;
-    const speedNum = Number(speed);
-    if (Number.isNaN(speedNum)) return undefined;
-    return { droneId, timestamp, speed: speedNum };
-  }
+  const trackedDevices = new TrackedDevices();
 
-  const multiData = new MultiDroneData(50);
+  // Paleta para hasta 5 drones
+  const colorPalette = [
+    'rgba(230, 25, 75, 1)',
+    'rgba(60, 180, 75, 1)',
+    'rgba(0, 130, 200, 1)',
+    'rgba(245, 130, 48, 1)',
+    'rgba(145, 30, 180, 1)'
+  ];
 
+  // Datos del chart: un dataset por dispositivo
   const chartData = {
-    labels: multiData.labels,
-    datasets: multiData.getDatasets()
+    labels: [],      // no se usan directamente con eje 'time', pero Chart.js los requiere
+    datasets: []     // se rellena dinámicamente según trackedDevices
   };
 
   const chartOptions = {
@@ -94,14 +77,17 @@ $(document).ready(() => {
           max: 300,
           stepSize: 20
         },
-        scaleLabel: { labelString: 'Speed (m/s)', display: true },
+        scaleLabel: {
+          labelString: 'Speed (m/s)',
+          display: true
+        },
         position: 'left'
       }],
       xAxes: [{
         type: 'time',
         distribution: 'series',
         time: {
-          parser: true,
+          parser: true, // Moment parsea ISO 8601
           tooltipFormat: 'YYYY-MM-DD HH:mm:ss',
           displayFormats: {
             millisecond: 'HH:mm:ss',
@@ -110,40 +96,145 @@ $(document).ready(() => {
             hour: 'HH:mm'
           }
         },
-        scaleLabel: { labelString: 'Timestamp (UTC)', display: true }
+        scaleLabel: {
+          labelString: 'Timestamp (UTC)',
+          display: true
+        }
       }]
     },
-    tooltips: { mode: 'nearest', intersect: false },
-    elements: { line: { tension: 0 } }
+    tooltips: {
+      mode: 'nearest',
+      intersect: false
+    },
+    elements: {
+      line: { tension: 0 }
+    }
   };
 
-  const canvas = document.getElementById('iotChart');
-  if (!canvas) {
-    console.error('No se encontró el canvas #iotChart en el DOM');
-    return;
+  // Canvas y chart
+  const ctx = document.getElementById('iotChart').getContext('2d');
+  const myLineChart = new Chart(ctx, {
+    type: 'line',
+    data: chartData,
+    options: chartOptions
+  });
+
+  // Elementos UI (como en el original)
+  let needsAutoSelect = true;
+  const deviceCount = document.getElementById('deviceCount');
+  const listOfDevices = document.getElementById('listOfDevices');
+
+  // Selección de dispositivo: destaca el dron seleccionado (línea más gruesa)
+  function OnSelectionChange() {
+    const selectedId = listOfDevices[listOfDevices.selectedIndex].text;
+    chartData.datasets.forEach((ds) => {
+      if (ds.label === selectedId) {
+        ds.borderWidth = 3;
+        ds.pointRadius = 2;
+      } else {
+        ds.borderWidth = 1;
+        ds.pointRadius = 0;
+      }
+    });
+    myLineChart.update();
   }
-  const ctx = canvas.getContext('2d');
-  const myLineChart = new Chart(ctx, { type: 'line', data: chartData, options: chartOptions });
+  listOfDevices.addEventListener('change', OnSelectionChange, false);
 
-  webSocket.onopen = () => console.log('WS abierto');
-  webSocket.onerror = (e) => console.error('WS error', e);
-  webSocket.onclose = () => console.warn('WS cerrado');
+  // Construye/actualiza los datasets del chart a partir de trackedDevices
+  function refreshDatasets() {
+    chartData.datasets = trackedDevices.devices.slice(0, 5).map((device, index) => {
+      const color = colorPalette[index % colorPalette.length];
+      return {
+        label: device.deviceId,
+        fill: false,
+        yAxisID: 'Speed',
+        borderColor: color,
+        backgroundColor: color.replace(', 1)', ', 0.2)'),
+        pointRadius: 0,
+        spanGaps: true,
+        data: device.timeData.map((t, i) => ({
+          x: t,
+          y: device.speedData[i]
+        }))
+      };
+    });
+  }
 
+  // Extrae velocidad de diferentes esquemas de mensaje:
+  // - Sample original: { DeviceId, MessageDate, IotData: { ... } }
+  // - Nuevo:          { droneId, timestamp, velocity: { speed_mps } }
+  function extractTelemetry(messageData) {
+    let deviceId = messageData.DeviceId || messageData.deviceId || messageData.droneId;
+    let time = messageData.MessageDate || messageData.timestamp;
+    let speed;
+
+    if (messageData.IotData) {
+      const d = messageData.IotData;
+      if (d.velocity && typeof d.velocity.speed_mps !== 'undefined') {
+        speed = d.velocity.speed_mps;
+      } else if (typeof d.speed_mps !== 'undefined') {
+        speed = d.speed_mps;
+      } else if (typeof d.speed !== 'undefined') {
+        speed = d.speed;
+      }
+    } else if (messageData.velocity) {
+      if (typeof messageData.velocity.speed_mps !== 'undefined') {
+        speed = messageData.velocity.speed_mps;
+      }
+    }
+
+    if (!deviceId || !time || typeof speed === 'undefined' || speed === null) {
+      return undefined;
+    }
+
+    const speedNum = Number(speed);
+    if (Number.isNaN(speedNum)) return undefined;
+
+    return { deviceId, time, speed: speedNum };
+  }
+
+  // WebSocket: recibe mensajes del backend (Event Hub -> server.js) y actualiza la gráfica
   webSocket.onmessage = function onMessage(message) {
     try {
-      const msg = JSON.parse(message.data);
-      const normalized = normalizeMessage(msg);
-      if (!normalized) {
-        console.debug('Mensaje ignorado (sin speed/droneId/timestamp):', msg);
+      const messageData = JSON.parse(message.data);
+      console.log('WS message:', messageData);
+
+      const telemetry = extractTelemetry(messageData);
+      if (!telemetry) {
+        // Mensaje de otro tipo o sin velocidad
         return;
       }
-      const { droneId, timestamp, speed } = normalized;
-      multiData.pushSample(timestamp, droneId, speed);
-      myLineChart.data.labels = multiData.labels;
-      myLineChart.data.datasets = multiData.getDatasets();
-      myLineChart.update();
+
+      const { deviceId, time, speed } = telemetry;
+
+      // Buscar o crear DeviceData
+      let deviceData = trackedDevices.findDevice(deviceId);
+      if (!deviceData) {
+        deviceData = new DeviceData(deviceId);
+        trackedDevices.devices.push(deviceData);
+
+        const numDevices = trackedDevices.getDevicesCount();
+        deviceCount.innerText = numDevices === 1 ? `${numDevices} device` : `${numDevices} devices`;
+
+        // Añadir a la lista UI
+        const node = document.createElement('option');
+        node.appendChild(document.createTextNode(deviceId));
+        listOfDevices.appendChild(node);
+
+        if (needsAutoSelect) {
+          needsAutoSelect = false;
+          listOfDevices.selectedIndex = 0;
+        }
+      }
+
+      // Añadir punto de telemetría
+      deviceData.addData(time, speed);
+
+      // Reconstruir datasets y actualizar chart
+      refreshDatasets();
+      OnSelectionChange(); // re-aplica resaltado
     } catch (err) {
-      console.error('Error procesando mensaje WS:', err);
+      console.error('Error al procesar mensaje WS:', err);
     }
   };
 });
