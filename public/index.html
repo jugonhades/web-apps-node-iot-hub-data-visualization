@@ -4,17 +4,21 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
 
-  <!-- Dependencias -->
-  <script src="https://code.jquery.com/jquery-3.4.0.min.js" integrity="sha256-BJeo0qm959uMBGb65z40ejJYGSgR7REI4+CW1fNKwOg=" crossorigin="anonymous" type="text/javascript" charset="utf-8"></script>
-  <!-- Requerido por Chart.js 2.x para escala de tiempo -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.4/moment.min.js" integrity="sha512-C7pQ+..." crossorigin="anonymous"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@2.8.0/dist/Chart.min.js" type="text/javascript" charset="utf-8"></script>
+  <!-- Dependencias (orden correcto) -->
+  <script src="https://code.jquery.com/jquery-3.4.0.min.js" crossorigin="anonymous"></script>
+  <!-- Chart.js v2 requiere Moment.js para eje de tiempo -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.4/moment.min.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@2.8.0/dist/Chart.min.js" crossorigin="anonymous"></script>
 
-  <!-- Tu script actualizado -->
-  <script src="js/chart-device-data.js?v=20251114" type="text/javascript" charset="utf-8"></script>
+  <!-- Script del gráfico (cache-busting) -->
+  <script src="js/chart-device-data.js?v=20251114" charset="utf-8"></script>
 
   <link href="css/style.css" rel="stylesheet" />
   <title>Drone Speed Real-time Data</title>
+  <style>
+    /* Asegura altura visible del canvas si usas maintainAspectRatio:false */
+    #iotChart { height: 420px; }
+  </style>
 </head>
 <body>
   <h1 class="flexHeader">

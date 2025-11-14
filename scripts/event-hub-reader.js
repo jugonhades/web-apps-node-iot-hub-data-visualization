@@ -1,52 +1,67 @@
-/*
- * Microsoft Sample Code - Copyright (c) 2020 - Licensed MIT
- */
+'use strict';
 
-const { EventHubProducerClient, EventHubConsumerClient } = require('@azure/event-hubs');
-const { convertIotHubToEventHubsConnectionString } = require('./iot-hub-connection-string.js');
+const { EventHubConsumerClient } = require('@azure/event-hubs');
 
+// Wrapper mínimo basado en el tutorial de Azure
 class EventHubReader {
-  constructor(iotHubConnectionString, consumerGroup) {
-    this.iotHubConnectionString = iotHubConnectionString;
-    this.consumerGroup = consumerGroup;
+  constructor(connectionString, consumerGroup) {
+    if (!connectionString) throw new Error('IotHubConnectionString is required');
+    this.consumerClient = new EventHubConsumerClient(consumerGroup, connectionString);
+    this.subscription = null;
   }
 
-  async startReadMessage(startReadMessageCallback) {
-    try {
-      const eventHubConnectionString = await convertIotHubToEventHubsConnectionString(this.iotHubConnectionString);
-      const consumerClient = new EventHubConsumerClient(this.consumerGroup, eventHubConnectionString);
-      console.log('Successfully created the EventHubConsumerClient from IoT Hub event hub-compatible connection string.');
+  async startReadMessage(onMessage) {
+    this.subscription = this.consumerClient.subscribe({
+      processEvents: async (events, context) => {
+        for (const event of events) {
+          try {
+            const body = typeof event.body === 'string' ? JSON.parse(event.body) : event.body;
 
-      const partitionIds = await consumerClient.getPartitionIds();
-      console.log('The partition ids are: ', partitionIds);
+            // Construir el objeto de salida según el front
+            let out = body;
 
-      consumerClient.subscribe({
-        processEvents: (events, context) => {
-          for (let i = 0; i < events.length; ++i) {
-            startReadMessageCallback(
-              events[i].body,
-              events[i].enqueuedTimeUtc,
-              events[i].systemProperties["iothub-connection-device-id"]);
+            // Si por cualquier motivo el body no trae los campos esperados, intenta mapearlos
+            if (!body?.droneId || !body?.timestamp || !body?.velocity?.speed_mps) {
+              const deviceId =
+                body?.droneId ||
+                event.systemProperties?.['iothub-connection-device-id'] ||
+                event.enqueuedTimeUtc?.toString?.() ||
+                'unknown';
+
+              const timestamp =
+                body?.timestamp ||
+                event.enqueuedTimeUtc?.toISOString?.() ||
+                new Date().toISOString();
+
+              const speed =
+                body?.velocity?.speed_mps ??
+                body?.speed_mps ??
+                null;
+
+              out = {
+                droneId: deviceId,
+                timestamp,
+                velocity: { speed_mps: speed }
+              };
+            }
+
+            await onMessage(out);
+          } catch (err) {
+            console.error('Error processing event:', err);
           }
-        },
-        processError: (err, context) => {
-          console.error(err.message || err);
         }
-      });
-    } catch (ex) {
-      console.error(ex.message || ex);
-    }
+      },
+      processError: async (err, context) => {
+        console.error('Event Hubs processing error:', err);
+      }
+    });
+
+    return this.subscription;
   }
 
-  // Close connection to Event Hub.
-  async stopReadMessage() {
-    const disposeHandlers = [];
-    this.receiveHandlers.forEach((receiveHandler) => {
-      disposeHandlers.push(receiveHandler.stop());
-    });
-    await Promise.all(disposeHandlers);
-
-    this.consumerClient.close();
+  async stop() {
+    if (this.subscription) await this.subscription.close();
+    if (this.consumerClient) await this.consumerClient.close();
   }
 }
 
